@@ -89,6 +89,11 @@
                 $target = this.getLinkTargetFor($form);
             }
 
+            // Overwrite the URL only if the form is not auto submitted
+            if (! $autoSubmittedBy && $button.hasAttr('formaction')) {
+                url = $button.attr('formaction');
+            }
+
             if (! url) {
                 // Use the URL of the target container if the form's action is not set
                 url = $target.closest('.container').data('icinga-url');
@@ -184,9 +189,24 @@
                 }
             }
 
-            var extraHeaders = {};
-            if ($autoSubmittedBy && ($autoSubmittedBy.attr('name') || $autoSubmittedBy.attr('id'))) {
-                extraHeaders['X-Icinga-AutoSubmittedBy'] = $autoSubmittedBy.attr('name') || $autoSubmittedBy.attr('id');
+            let extraHeaders = {};
+            if ($autoSubmittedBy) {
+                let id;
+                if (($autoSubmittedBy.attr('name') || $autoSubmittedBy.attr('id'))) {
+                    id = $autoSubmittedBy.attr('name') || $autoSubmittedBy.attr('id');
+                } else {
+                    let formSelector = icinga.utils.getCSSPath($form);
+                    let nearestKnownParent = $autoSubmittedBy.closest(
+                        formSelector + ' [name],' + formSelector + ' [id]'
+                    );
+                    if (nearestKnownParent) {
+                        id = nearestKnownParent.attr('name') || nearestKnownParent.attr('id');
+                    }
+                }
+
+                if (id) {
+                    extraHeaders['X-Icinga-AutoSubmittedBy'] = id;
+                }
             }
 
             var req = this.loadUrl(url, $target, data, method, undefined, undefined, undefined, extraHeaders);
@@ -548,6 +568,12 @@
                 if (req.$redirectTarget.is('#col1')) {
                     icinga.logger.warn('Cannot close #col1');
                     return false;
+                }
+
+                if (req.$redirectTarget.is('.container') && req.$redirectTarget.parent().closest('.container').length > 0) {
+                    // If it is a container that is not a top level container, we just empty it
+                    req.$redirectTarget.empty();
+                    return true;
                 }
 
                 // Close right column as requested
@@ -1213,13 +1239,22 @@
                 if (autorefresh || autoSubmit) {
                     if ($container.css('display') === 'flex' && $container.is('.container')) {
                         var $scrollableContent = $container.children('.content');
-                        scrollPos = $scrollableContent.scrollTop();
+                        scrollPos = {
+                            x: $scrollableContent.scrollTop(),
+                            y: $scrollableContent.scrollLeft()
+                        };
                         scrollTarget = _this.icinga.utils.getCSSPath($scrollableContent);
                     } else {
-                        scrollPos = $container.scrollTop();
+                        scrollPos = {
+                            x: $container.scrollTop(),
+                            y: $container.scrollLeft()
+                        };
                     }
                 } else {
-                    scrollPos = 0;
+                    scrollPos = {
+                        x: 0,
+                        y: 0
+                    }
                 }
             }
 
@@ -1293,14 +1328,16 @@
 
             if (scrollPos !== false) {
                 var $scrollTarget = $(scrollTarget);
-                $scrollTarget.scrollTop(scrollPos);
 
                 // Fallback for browsers without support for focus({preventScroll: true})
-                setTimeout(function () {
-                    if ($scrollTarget.scrollTop() !== scrollPos) {
-                        $scrollTarget.scrollTop(scrollPos);
+                requestAnimationFrame(() => {
+                    if ($scrollTarget.scrollTop() !== scrollPos.x) {
+                        $scrollTarget.scrollTop(scrollPos.x);
                     }
-                }, 0);
+                    if ($scrollTarget.scrollLeft() !== scrollPos.y) {
+                        $scrollTarget.scrollLeft(scrollPos.y);
+                    }
+                });
             }
 
             // Re-enable all click events (disabled as of performance reasons)
